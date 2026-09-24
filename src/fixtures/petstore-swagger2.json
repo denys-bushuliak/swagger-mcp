@@ -1,0 +1,83 @@
+{
+  "swagger": "2.0",
+  "info": { "title": "Petstore", "version": "1.0.0" },
+  "host": "petstore.swagger.io",
+  "basePath": "/v2",
+  "schemes": ["https"],
+  "paths": {
+    "/pet/{petId}": {
+      "parameters": [
+        { "name": "petId", "in": "path", "type": "string", "required": true }
+      ],
+      "get": {
+        "operationId": "getPetById",
+        "summary": "Find pet by ID",
+        "produces": ["application/json"],
+        "responses": { "200": { "description": "ok", "schema": { "$ref": "#/definitions/Pet" } } }
+      },
+      "post": {
+        "operationId": "updatePetWithForm",
+        "consumes": ["application/x-www-form-urlencoded"],
+        "parameters": [
+          { "name": "name", "in": "formData", "type": "string" },
+          { "name": "status", "in": "formData", "type": "string", "enum": ["sold", "pending"] }
+        ],
+        "responses": { "200": { "description": "ok" } }
+      },
+      "delete": {
+        "operationId": "deletePet",
+        "parameters": [{ "name": "api_key", "in": "header", "type": "string" }],
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/pet": {
+      "put": {
+        "operationId": "updatePet",
+        "parameters": [
+          { "name": "body", "in": "body", "required": true, "schema": { "$ref": "#/definitions/Pet" } }
+        ],
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/pet/findByStatus": {
+      "get": {
+        "operationId": "findPetsByStatus",
+        "parameters": [
+          { "name": "status", "in": "query", "required": true, "type": "array", "items": { "type": "string", "enum": ["available", "sold"] }, "collectionFormat": "csv" }
+        ],
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/owner/{owner}/pet/{petId}": {
+      "get": {
+        "summary": "No operationId here",
+        "parameters": [
+          { "name": "owner", "in": "path", "type": "string", "required": true },
+          { "name": "petId", "in": "path", "type": "integer", "required": true }
+        ],
+        "responses": { "200": { "description": "ok" } }
+      }
+    }
+  },
+  "definitions": {
+    "Category": {
+      "type": "object",
+      "properties": { "id": { "type": "integer" }, "name": { "type": "string" } }
+    },
+    "Tag": {
+      "type": "object",
+      "properties": { "id": { "type": "integer" }, "name": { "type": "string" } }
+    },
+    "Pet": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "id": { "type": "integer", "format": "int64" },
+        "name": { "type": "string" },
+        "category": { "$ref": "#/definitions/Category" },
+        "tags": { "type": "array", "items": { "$ref": "#/definitions/Tag" } },
+        "status": { "type": "string", "enum": ["available", "pending", "sold"] }
+      }
+    }
+  }
+}

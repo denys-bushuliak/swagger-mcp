@@ -1,0 +1,51 @@
+{
+  "openapi": "3.0.2",
+  "info": { "title": "Petstore", "version": "1.0.0" },
+  "servers": [{ "url": "https://{region}.petstore.example.com/{base}", "variables": { "region": { "default": "eu" }, "base": { "default": "v3" } } }],
+  "paths": {
+    "/pet/{petId}": {
+      "get": {
+        "operationId": "getPetById",
+        "parameters": [
+          { "name": "petId", "in": "path", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "responses": { "200": { "description": "ok", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Pet" } } } } }
+      },
+      "delete": {
+        "operationId": "deletePet",
+        "parameters": [
+          { "name": "api_key", "in": "header", "schema": { "type": "string" } },
+          { "$ref": "#/components/parameters/PetId" }
+        ],
+        "responses": { "200": { "description": "ok" } }
+      }
+    },
+    "/pet": {
+      "put": {
+        "operationId": "updatePet",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Pet" } } }
+        },
+        "responses": { "200": { "description": "ok" } }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "PetId": { "name": "petId", "in": "path", "required": true, "schema": { "type": "integer" } }
+    },
+    "schemas": {
+      "Category": { "type": "object", "properties": { "id": { "type": "integer" }, "name": { "type": "string" } } },
+      "Pet": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "category": { "$ref": "#/components/schemas/Category" },
+          "photoUrls": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}
