@@ -15,6 +15,7 @@ pub const specio = @import("specio.zig");
 pub const openapi = @import("openapi/parse.zig");
 pub const tools = @import("tools.zig");
 pub const exec = @import("exec.zig");
+pub const fuzz = @import("fuzz.zig");
 
 test {
     std.testing.refAllDecls(@This());

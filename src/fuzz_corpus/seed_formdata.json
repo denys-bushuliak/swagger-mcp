@@ -1,0 +1,1 @@
+{"swagger":"2.0","info":{"title":"t","version":"1"},"paths":{"/u":{"post":{"operationId":"upload","consumes":["multipart/form-data"],"parameters":[{"name":"f","in":"formData","type":"array","items":{"type":"string"},"collectionFormat":"multi"},{"name":"n","in":"formData","type":"number"}]}}}}

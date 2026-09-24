@@ -86,6 +86,13 @@ URL/path.
 * Swagger 2.0 (incl. `$ref` definitions, formData, collectionFormat)
 * OpenAPI 3.0/3.1 (incl. components, requestBody, server URL templates)
 
+## Fuzzing
+
+`zig build fuzz-target` produces a harness for AFL++ (QEMU mode) fuzzing the
+spec parser/tool-generation pipeline; `fuzz/` holds the seed corpus pointer,
+dictionary and campaign instructions. Crashes must be minimized into
+`src/fuzz_corpus/` as regression seeds (they also replay in `zig build test`).
+
 ## Status
 
 Experimental. See `AGENTS.md` for internals and the step-by-step history.

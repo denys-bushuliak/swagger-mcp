@@ -34,4 +34,16 @@ pub fn build(b: *std.Build) void {
 
     const fmt_check = b.addFmt(.{ .paths = &.{"."}, .check = true });
     b.step("fmt", "Check formatting").dependOn(&fmt_check.step);
+
+    const fuzz_exe = b.addExecutable(.{
+        .name = "swagger-mcp-fuzz",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/fuzz_target.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "swaggermcp", .module = lib }},
+        }),
+    });
+    const fuzz_step = b.step("fuzz-target", "Build the AFL++ (QEMU-mode) fuzz harness");
+    fuzz_step.dependOn(&b.addInstallArtifact(fuzz_exe, .{}).step);
 }

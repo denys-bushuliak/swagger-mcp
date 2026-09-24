@@ -1,0 +1,1 @@
+{"swagger":"2.0","info":{"title":"t","version":"1"},"paths":{"/a":{"get":{"operationId":"x"},"post":{"operationId":"x"}},"/b":{"get":{"operationId":"x"}},"/c":{"get":{}},"/d":{"get":{"operationId":"@@@"}}}}

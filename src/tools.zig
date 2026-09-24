@@ -240,6 +240,28 @@ fn locName(l: doc.ParamLocation) []const u8 {
     };
 }
 
+/// Fuzz entry point (EPIC F1): run the parse -> tool-generation pipeline over
+/// arbitrary bytes. Malformed documents are NOT failures (errors swallowed);
+/// crashes/panics/invariant violations are. Used by `zig build test --fuzz`
+/// (native coverage fuzzer) and by src/fuzz_target.zig (AFL++ QEMU mode).
+pub fn fuzzSpec(alloc: std.mem.Allocator, bytes: []const u8) void {
+    const parsed = json.parseFromSlice(json.Value, alloc, bytes, .{
+        .duplicate_field_behavior = .use_last,
+    }) catch return;
+    const spec = parse.parseAny(alloc, parsed.value) catch return;
+    if (spec.operations.len > max_operations) return;
+
+    var taken = std.StringHashMap(void).init(alloc);
+    defer taken.deinit();
+    for (spec.operations) |op| {
+        if (op.name.len == 0) @panic("fuzz: empty tool name");
+        const gop = taken.getOrPut(op.name) catch return;
+        if (gop.found_existing) @panic("fuzz: duplicate tool name");
+        _ = doc.toColonTemplate(alloc, op.path) catch {};
+        _ = buildInputSchema(alloc, op) catch return; // OOM only
+    }
+}
+
 // ---- tests ----
 
 const petstore2_src = @embedFile("fixtures/petstore-swagger2.json");

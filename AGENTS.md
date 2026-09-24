@@ -27,7 +27,7 @@
 
 ## Commands
 
-- `zig build` → `zig-out/bin/swagger-mcp`; `zig build test`; `zig build run -- --spec <path|url>`; `zig build fmt`.
+- `zig build` → `zig-out/bin/swagger-mcp`; `zig build test`; `zig build run -- --spec <path|url>`; `zig build fmt`; `zig build fuzz-target` (AFL++ QEMU harness).
 
 ## Zig 0.16 gotchas (API differs sharply from pre-0.15 knowledge)
 
@@ -50,11 +50,13 @@ Workflow: one commit per plan step (code + tests + docs). Per-step summary below
 - Step 5+6: `src/openapi/` — shared model (`doc.zig`: $ref expand with cycle-cut, tool-name sanitize, dedupe), Swagger 2.0 parser (`swagger2.zig`), OpenAPI 3.x parser (`openapi3.zig`), version dispatch (`parse.zig`); fixtures in `src/fixtures/`. An opt-in test parses a real spec via env `SWAGGER_MCP_SPEC=/path` (verified: Forgejo 850 KB, 506 ops).
 
 - Step 7: `src/tools.zig` — `Registry` (load_spec + generated tools), `notifications/tools/list_changed` written before the tools/call response; stdio loop live in `main.zig`. E2E verified manually: Forgejo spec loads 506 ops + load_spec = 507 tools.
-- Step 8: `src/exec.zig` — buildRequest (path/query/header/body, percent-encoding, form data) + execute (std.http.Client, 4 MB response cap, `SWAGGER_MCP_TOKEN` -> `Authorization: Bearer`). Test spins up python3 http.server on an ephemeral port (20000 + pid%20000; skips if no python3).
+- Step 8: `src/exec.zig` — buildRequest (path/query/header/body, percent-encoding, form data) + execute (std.http.Client, 4 MB response cap, `SWAGGER_MCP_TOKEN` -> `Authorization: Bearer`). Test spins up python3 http.server on an ephemeral port (20000 + pid%20000; skips if no python3; needs a free port in range).
+
+- Fuzz EPIC F1 (AFL++): `tools.fuzzSpec` = crash oracle (empty/dup tool names, schema build) over parse+tool-gen; seeds `src/fuzz_corpus/` (replayed by `zig build test` via `std.testing.fuzz` corpus mode); `src/fuzz_target.zig` + `zig build fuzz-target` = AFL++ QEMU harness; `fuzz/` = dict + campaign runbook (Docker `aflplusplus/aflplusplus`, cross-build `aarch64-linux-musl`). Verified: 90 s smoke run, 208 new corpus items, 0 crashes. Native `zig build test --fuzz` is blocked by a Zig 0.16.0 std bug (test_runner.zig fails to compile with `-ffuzz`).
 
 ## Testing quirk (Zig 0.16, critical)
 
-Test blocks in imported files are NOT collected unless forced: `src/root.zig` ends with `test { std.testing.refAllDecls(@This()); }`. Check `zig build test --summary all` shows the expected total (currently 22), not just exit 0 — a silent "2 pass" can mean module tests never ran.
+Test blocks in imported files are NOT collected unless forced: `src/root.zig` ends with `test { std.testing.refAllDecls(@This()); }`. Check `zig build test --summary all` shows the expected total (currently 45, 1 skippable opt-in), not just exit 0 — a silent "2 pass" can mean module tests never ran.
 
 ## Zig 0.16 std API deltas vs older knowledge
 
