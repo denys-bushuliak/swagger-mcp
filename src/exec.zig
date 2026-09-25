@@ -189,7 +189,7 @@ pub fn encodePercent(alloc: std.mem.Allocator, s: []const u8) ![]const u8 {
     return out.items;
 }
 
-pub const ExecError = BuildError || error{ HttpFailed, TooLarge };
+pub const ExecError = BuildError || error{ HttpFailed, TooLarge, BodyNotAllowed };
 
 /// Perform the request and return a text MCP tool result.
 pub fn execute(
@@ -212,9 +212,18 @@ pub fn execute(
     defer req.deinit();
 
     if (built.body) |b| {
+        // Mirror of the sendBodiless guard: std.http sendBodyUnflushed asserts
+        // method.requestHasBody(), so a spec that declares a body parameter on
+        // GET/DELETE/etc must fail cleanly, not abort the server.
+        if (!method.requestHasBody()) return ExecError.BodyNotAllowed;
         const payload = try alloc.dupe(u8, b);
         req.transfer_encoding = .{ .content_length = payload.len };
         req.sendBodyComplete(payload) catch return ExecError.HttpFailed;
+    } else if (method.requestHasBody()) {
+        // std.http sendBodiless asserts !method.requestHasBody(), which is
+        // false for POST/PUT/PATCH; send an explicit empty body instead.
+        var empty: [0]u8 = .{};
+        req.sendBodyComplete(&empty) catch return ExecError.HttpFailed;
     } else {
         req.sendBodiless() catch return ExecError.HttpFailed;
     }
@@ -419,6 +428,109 @@ test "end-to-end: fetch spec over http and execute GET tool" {
     try std.testing.expect(!call_res.is_error);
     try std.testing.expect(std.mem.indexOf(u8, call_res.text, "HTTP 200") != null);
     try std.testing.expect(std.mem.indexOf(u8, call_res.text, "world") != null);
+
+    Io.Dir.cwd().deleteTree(io, dir) catch {};
+}
+
+test "regression: bodiless PUT/DELETE do not panic sendBodilessUnflushed" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const alloc = arena_state.allocator();
+    var threaded = Io.Threaded.init(alloc, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const python_candidates = [_][]const u8{ "/opt/homebrew/bin/python3", "/usr/bin/python3", "/usr/local/bin/python3" };
+    var python: []const u8 = "";
+    for (python_candidates) |c| {
+        if (std.Io.Dir.cwd().access(io, c, .{})) |_| {
+            python = c;
+        } else |_| {}
+        if (python.len > 0) break;
+    }
+    if (python.len == 0) return error.SkipZigTest;
+
+    const port: u16 = @intCast(50000 + @mod(std.c.getpid(), 10000));
+    const port_str = try std.fmt.allocPrint(alloc, "{d}", .{port});
+    const dir = "/tmp/swagger-mcp-bodiless";
+    Io.Dir.cwd().createDirPath(io, dir) catch {};
+    const spec_json = try std.fmt.allocPrint(alloc,
+        \\{{"openapi":"3.0.0","info":{{"title":"t","version":"1"}},"servers":[{{"url":"http://127.0.0.1:{d}"}}],"paths":{{"/collab/{{owner}}/{{repo}}/{{username}}":{{"put":{{"operationId":"putCollab","responses":{{"200":{{"description":"ok"}}}}}},"delete":{{"operationId":"delCollab","responses":{{"204":{{"description":"ok"}}}}}}}},"/delbody":{{"delete":{{"operationId":"delBody","requestBody":{{"required":true,"content":{{"application/json":{{"schema":{{"type":"object"}}}}}},"responses":{{"200":{{"description":"ok"}}}}}}}}}}}}}}
+    , .{port});
+    const server_py =
+        \\import http.server, json, os, sys
+        \\class H(http.server.SimpleHTTPRequestHandler):
+        \\    def __init__(self, *a, **k):
+        \\        super().__init__(*a, directory=os.path.dirname(os.path.abspath(__file__)), **k)
+        \\    def log_message(self, *a): pass
+        \\    def do_PUT(self):
+        \\        n = int(self.headers.get("Content-Length") or -1)
+        \\        if n > 0: self.rfile.read(n)
+        \\        body = json.dumps({"method": "PUT", "content_length": n}).encode()
+        \\        self.send_response(200)
+        \\        self.send_header("Content-Type", "application/json")
+        \\        self.send_header("Content-Length", str(len(body)))
+        \\        self.end_headers()
+        \\        self.wfile.write(body)
+        \\    def do_DELETE(self):
+        \\        n = int(self.headers.get("Content-Length") or -1)
+        \\        if n > 0: self.rfile.read(n)
+        \\        body = json.dumps({"method": "DELETE", "content_length": n}).encode()
+        \\        self.send_response(200)
+        \\        self.send_header("Content-Type", "application/json")
+        \\        self.send_header("Content-Length", str(len(body)))
+        \\        self.end_headers()
+        \\        self.wfile.write(body)
+        \\http.server.HTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
+    ;
+    {
+        var f = try Io.Dir.cwd().createFile(io, dir ++ "/openapi.json", .{ .truncate = true });
+        try f.writeStreamingAll(io, spec_json);
+        f.close(io);
+        var g = try Io.Dir.cwd().createFile(io, dir ++ "/server.py", .{ .truncate = true });
+        try g.writeStreamingAll(io, server_py);
+        g.close(io);
+    }
+
+    var child = try std.process.spawn(io, .{
+        .argv = &.{ python, dir ++ "/server.py", port_str },
+        .stdout = .ignore,
+        .stderr = .ignore,
+    });
+    defer child.kill(io);
+    std.Io.Timeout.sleep(.{ .duration = .{ .raw = .{ .nanoseconds = 400 * std.time.ns_per_ms }, .clock = .awake } }, io) catch {};
+
+    var reg = try @import("tools.zig").Registry.init(alloc, io);
+    var out_buf: [4096]u8 = undefined;
+    var writer = Io.Writer.fixed(&out_buf);
+    const load_res = try reg.toolset().call("load_spec", .{ .object = blk: {
+        var m: json.ObjectMap = .empty;
+        try m.put(alloc, "source", .{ .string = try std.fmt.allocPrint(alloc, "http://127.0.0.1:{d}/openapi.json", .{port}) });
+        break :blk m;
+    } }, &writer);
+    try std.testing.expect(!load_res.is_error);
+
+    const parsed_args = try parseArgs(alloc, "{\"owner\":\"o\",\"repo\":\"r\",\"username\":\"u\"}");
+
+    // Bodiless PUT: std.http sendBodiless asserts !requestHasBody() on PUT.
+    const put_res = try reg.toolset().call("putCollab", parsed_args, &writer);
+    try std.testing.expect(!put_res.is_error);
+    try std.testing.expect(std.mem.indexOf(u8, put_res.text, "HTTP 200") != null);
+    try std.testing.expect(std.mem.indexOf(u8, put_res.text, "PUT") != null);
+    try std.testing.expect(std.mem.indexOf(u8, put_res.text, "\"content_length\": 0") != null);
+
+    const del_res = try reg.toolset().call("delCollab", parsed_args, &writer);
+    try std.testing.expect(!del_res.is_error);
+    try std.testing.expect(std.mem.indexOf(u8, del_res.text, "HTTP 200") != null);
+    try std.testing.expect(std.mem.indexOf(u8, del_res.text, "\"content_length\": -1") != null);
+
+    const del_body_args = try parseArgs(alloc, "{\"body\":{\"a\":1}}");
+    const del_body_res = try reg.toolset().call("delBody", del_body_args, &writer);
+    try std.testing.expect(del_body_res.is_error);
+    try std.testing.expect(std.mem.indexOf(u8, del_body_res.text, "does not accept a request body") != null);
+
+    const alive_res = try reg.toolset().call("delCollab", parsed_args, &writer);
+    try std.testing.expect(!alive_res.is_error);
 
     Io.Dir.cwd().deleteTree(io, dir) catch {};
 }

@@ -178,6 +178,7 @@ pub const Registry = struct {
             error.OutOfMemory => error.OutOfMemory,
             error.HttpFailed => .{ .text = "HTTP request failed (connection or protocol error)", .is_error = true },
             error.TooLarge => .{ .text = "response exceeds size limit", .is_error = true },
+            error.BodyNotAllowed => .{ .text = "this operation's HTTP method does not accept a request body", .is_error = true },
             error.MissingBaseUrl, error.MissingArgument, error.BadArguments, error.NoTemplateParams => .{ .text = "request build failed", .is_error = true },
         };
     }
