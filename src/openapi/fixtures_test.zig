@@ -8,6 +8,7 @@ const openapi3 = @import("openapi3.zig");
 
 const petstore2 = @embedFile("../fixtures/petstore-swagger2.json");
 const petstore3 = @embedFile("../fixtures/petstore-openapi3.json");
+const forgejo2 = @embedFile("../fixtures/forgejo-swagger2.json");
 
 fn parse(alloc: std.mem.Allocator, src: []const u8) !json.Parsed(json.Value) {
     return json.parseFromSlice(json.Value, alloc, src, .{ .duplicate_field_behavior = .use_last });
@@ -66,19 +67,11 @@ test "swagger2 fixture: operations, params, refs, base url" {
     try std.testing.expect(gen != null); // auto-named operation
 }
 
-test "live Forgejo spec (opt-in via SWAGGER_MCP_SPEC=/path)" {
-    const raw = std.c.getenv("SWAGGER_MCP_SPEC") orelse return error.SkipZigTest;
-    if (raw[0] == 0) return error.SkipZigTest;
-    const path = std.mem.span(raw);
-    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
-    defer threaded.deinit();
-    const bytes = try @import("../specio.zig").load(std.testing.allocator, threaded.io(), path);
-    defer std.testing.allocator.free(bytes);
-
+test "forgejo fixture (snapshot of git.local swagger.v1.json): operation names" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const alloc = arena_state.allocator();
-    const parsed = try json.parseFromSlice(json.Value, alloc, bytes, .{ .duplicate_field_behavior = .use_last });
+    const parsed = try parse(alloc, forgejo2);
     const spec = try swagger2.parse(alloc, parsed.value);
     try std.testing.expect(spec.operations.len > 400);
     for (spec.operations) |op| {
